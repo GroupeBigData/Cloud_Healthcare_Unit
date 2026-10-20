@@ -1,0 +1,16 @@
+# Données : jamais versionnées
+data/*
+!data/README.md
+
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Divers
+*.log
+.vscode/
+Thumbs.db
