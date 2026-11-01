@@ -14,3 +14,12 @@ __pycache__/
 *.log
 .vscode/
 Thumbs.db
+
+job0_preparation/landing_local/
+job0_preparation/sources_externes/
+
+
+# Données : jamais dans Git
+landing_local/
+sources_externes/
+*.tmp
