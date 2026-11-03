@@ -1,6 +1,6 @@
 -- Databricks notebook source
--- Membre A - Cles primaires et etrangeres (informatives sur Databricks, non appliquees)
--- A lancer apres A_07 a A_10. Si une contrainte existe deja, passer la cellule.
+-- Gold - clés primaires et étrangères (informatives sur Databricks, non appliquées)
+-- À lancer après tous les scripts de sql/dml/gold/. Si une contrainte existe déjà, passer la cellule.
 
 -- COMMAND ----------
 ALTER TABLE chu.gold.dim_diagnostic ALTER COLUMN diagnostic_sk SET NOT NULL;

@@ -1,5 +1,5 @@
 -- Databricks notebook source
--- Membre A - Gold dim_patient (identifiant deja pseudonymise a la source)
+-- Gold - dim_patient (identifiant déjà pseudonymisé à la source)
 CREATE SCHEMA IF NOT EXISTS chu.gold;
 
 -- COMMAND ----------

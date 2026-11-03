@@ -1,5 +1,5 @@
 -- Databricks notebook source
--- Membre A - Gold dim_temps : calendrier genere par code (pas de Bronze ni de Silver)
+-- Gold - dim_temps : calendrier généré par code (pas de Bronze ni de Silver)
 CREATE OR REPLACE TABLE chu.gold.dim_temps
 COMMENT 'Dimension calendrier generee, cle date_sk au format yyyyMMdd'
 AS
