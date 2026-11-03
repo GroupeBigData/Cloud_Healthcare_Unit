@@ -1,6 +1,6 @@
 -- Databricks notebook source
--- Membre A - Gold fait_hospitalisation (grain : un sejour)
--- etablissement_sk = NULL tant que dim_etablissement (Membre C) n'est pas livree ; finess est temporaire
+-- Gold - fait_hospitalisation (grain : un séjour)
+-- etablissement_sk = NULL tant que dim_etablissement n'est pas livrée ; finess est temporaire
 CREATE OR REPLACE TABLE chu.gold.fait_hospitalisation AS
 SELECT s.num_hospitalisation                                                   AS hospitalisation_id,
        p.patient_sk,
