@@ -23,3 +23,10 @@ job0_preparation/sources_externes/
 landing_local/
 sources_externes/
 *.tmp
+
+# Docs de suivi personnel (pas versionnées)
+docs/livrable2/00_SUIVI_consultations_professionnels_specialites.md
+docs/livrable2/bronze_consultations_professionnels_specialites.md
+docs/livrable2/plan_consultations_professionnels_specialites.md
+docs/livrable2/profilage_consultations_professionnels.md
+CHU — Livrable 2 plan de travail de A à Z.md
