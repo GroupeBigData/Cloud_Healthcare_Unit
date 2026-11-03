@@ -1,10 +1,15 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # Bronze - diagnostic : contenu inchangé, tout en texte, + traçabilité.
 # Source : /Volumes/chu/bronze/landing/postgres/diagnostic/ (CSV, séparateur ;, avec en-tête)
 # Cible  : chu.bronze.diagnostic
 # Colonnes techniques communes au projet : _fichier_source, _date_chargement, _id_lot.
 
 # COMMAND ----------
+
 from datetime import datetime
 
 from pyspark.sql import functions as F
