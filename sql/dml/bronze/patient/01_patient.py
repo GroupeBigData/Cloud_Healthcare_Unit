@@ -1,10 +1,15 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # Bronze - patient : contenu inchangé, tout en texte, + traçabilité.
 # Source : /Volumes/chu/bronze/landing/postgres/patient/ (CSV, séparateur ;, avec en-tête)
 # Cible  : chu.bronze.patient
 # Colonnes techniques communes au projet : _fichier_source, _date_chargement, _id_lot.
 
 # COMMAND ----------
+
 from datetime import datetime
 
 from pyspark.sql import functions as F
@@ -28,7 +33,6 @@ df = (spark.read
       ))
 
 # Rafraîchissement complet : l'extraction PostgreSQL produit un instantané, pas un delta.
-(df.write.mode("overwrite").format("delta")
-   .saveAsTable("chu.bronze.patient"))
+(df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable("chu.bronze.patient"))
 
 print(f"lot {ID_LOT} - {spark.table('chu.bronze.patient').count():,} lignes")  # attendu : 100 000
