@@ -1,8 +1,8 @@
 -- Databricks notebook source
--- Gold - dim_diagnostic (clé de substitution calculée par row_number)
-CREATE OR REPLACE TABLE chu.gold.dim_diagnostic AS
-SELECT row_number() OVER (ORDER BY code_diag) AS diagnostic_sk,
-       code_diag,
-       diagnostic,
-       left(code_diag, 1) AS chapitre_cim10
+-- Gold - DML dim_diagnostic. Prérequis : sql/ddl/gold/03_dim_diagnostic.sql
+INSERT OVERWRITE chu.gold.dim_diagnostic (code_diag, libelle, lettre_cim10)
+SELECT code_diag, diagnostic, left(code_diag, 1)
 FROM chu.silver.diagnostic;
+
+INSERT INTO chu.gold.dim_diagnostic (diagnostic_sk, code_diag, libelle, lettre_cim10)
+VALUES (-1, 'INCONNU', 'Diagnostic inconnu', NULL);

@@ -1,16 +1,8 @@
 -- Databricks notebook source
--- Gold - dim_patient (identifiant déjà pseudonymisé à la source)
-CREATE SCHEMA IF NOT EXISTS chu.gold;
+-- Gold - DML dim_patient. Prérequis : sql/ddl/gold/02_dim_patient.sql
+INSERT OVERWRITE chu.gold.dim_patient (patient_id, sexe, annee_naissance)
+SELECT patient_id, sexe, annee_naissance
+FROM chu.silver.patient;
 
--- COMMAND ----------
-CREATE OR REPLACE TABLE chu.gold.dim_patient (
-  patient_sk      BIGINT GENERATED ALWAYS AS IDENTITY,
-  patient_id      STRING NOT NULL,
-  sexe            STRING,
-  annee_naissance INT,
-  CONSTRAINT pk_dim_patient PRIMARY KEY (patient_sk)
-) USING DELTA;
-
--- COMMAND ----------
-INSERT INTO chu.gold.dim_patient (patient_id, sexe, annee_naissance)
-SELECT patient_id, sexe, annee_naissance FROM chu.silver.patient;
+INSERT INTO chu.gold.dim_patient (patient_sk, patient_id, sexe, annee_naissance)
+VALUES (-1, 'INCONNU', 'INCONNU', NULL);

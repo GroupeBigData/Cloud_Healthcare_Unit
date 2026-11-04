@@ -1,16 +1,22 @@
 -- Databricks notebook source
--- Gold - dim_temps : calendrier généré par code (pas de Bronze ni de Silver)
-CREATE OR REPLACE TABLE chu.gold.dim_temps
-COMMENT 'Dimension calendrier generee, cle date_sk au format yyyyMMdd'
-AS
+-- Gold - DML dim_temps : calendrier généré (aucune source Bronze ni Silver).
+-- Prérequis : sql/ddl/gold/01_dim_temps.sql
+INSERT OVERWRITE chu.gold.dim_temps
 SELECT
-  CAST(date_format(d, 'yyyyMMdd') AS INT) AS date_sk,
-  d                                       AS date_complete,
-  year(d)                                 AS annee,
-  quarter(d)                              AS trimestre,
-  month(d)                                AS mois,
-  date_format(d, 'MMMM')                  AS nom_mois,
-  weekofyear(d)                           AS semaine,
-  dayofweek(d)                            AS jour_semaine,
-  dayofweek(d) IN (1, 7)                  AS est_weekend
-FROM (SELECT explode(sequence(DATE'2010-01-01', DATE'2025-12-31', INTERVAL 1 DAY)) AS d);
+  CAST(date_format(d, 'yyyyMMdd') AS INT),
+  d,
+  year(d),
+  CAST(floor(year(d) / 10) * 10 AS INT),
+  quarter(d),
+  month(d),
+  element_at(array('janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet',
+                   'août', 'septembre', 'octobre', 'novembre', 'décembre'), month(d)),
+  weekofyear(d),
+  weekday(d) + 1,
+  element_at(array('lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'),
+             weekday(d) + 1),
+  weekday(d) >= 5
+FROM (SELECT explode(sequence(DATE'1880-01-01', DATE'2025-12-31', INTERVAL 1 DAY)) AS d);
+
+INSERT INTO chu.gold.dim_temps VALUES
+  (-1, NULL, NULL, NULL, NULL, NULL, 'Inconnu', NULL, NULL, 'Inconnu', NULL);
