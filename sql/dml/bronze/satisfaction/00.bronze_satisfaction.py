@@ -1,4 +1,4 @@
-# Bronze - satisfaction : charge chaque dossier de landing/satisfaction dans sa table Bronze.
+
 from datetime import datetime
 
 DOSSIER = "/Volumes/chu/bronze/landing/satisfaction/"
