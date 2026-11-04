@@ -10,6 +10,7 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 2
 from datetime import datetime
 
 from pyspark.sql import functions as F
@@ -32,7 +33,6 @@ df = (spark.read
       ))
 
 # Rafraîchissement complet : l'extraction PostgreSQL produit un instantané, pas un delta.
-(df.write.mode("overwrite").format("delta")
-   .saveAsTable("chu.bronze.diagnostic"))
+(df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable("chu.bronze.diagnostic"))
 
 print(f"lot {ID_LOT} - {spark.table('chu.bronze.diagnostic').count():,} lignes")  # attendu : 15 490
