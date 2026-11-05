@@ -4,6 +4,29 @@
 
 -- COMMAND ----------
 
+-- COMMAND ----------
+
+-- 0. Table des résultats : une ligne par contrôle et par exécution, jamais effacée (historique).
+--    Dimensions qualité : completude | unicite | validite | coherence | integrite
+--    Gravité : bloquant (un KO arrête la chaîne) | avertissement (un KO est seulement signalé)
+CREATE TABLE IF NOT EXISTS chu.quality.resultats_controles (
+  id_execution     STRING       NOT NULL COMMENT 'Exécution (yyyyMMdd_HHmmss), commune à tous les contrôles d''un passage',
+  date_controle    TIMESTAMP    NOT NULL COMMENT 'Moment du contrôle (UTC)',
+  couche           STRING       NOT NULL COMMENT 'bronze, silver, gold ou bout_en_bout',
+  entite           STRING       NOT NULL COMMENT 'Table ou entité contrôlée (ex. fait_consultation)',
+  controle         STRING       NOT NULL COMMENT 'Code stable du contrôle (ex. pk_unique), pour suivre son évolution',
+  dimension        STRING       NOT NULL COMMENT 'completude | unicite | validite | coherence | integrite',
+  description      STRING                COMMENT 'Ce que le contrôle vérifie, en clair',
+  nb_examinees     BIGINT                COMMENT 'Nombre de lignes examinées',
+  nb_anomalies     BIGINT                COMMENT 'Nombre de lignes en défaut',
+  taux_conformite  DECIMAL(7,4)          COMMENT '% de lignes conformes ; NULL si aucune ligne examinée',
+  seuil_pct        DECIMAL(7,4)          COMMENT 'Taux de conformité minimal attendu',
+  gravite          STRING       NOT NULL COMMENT 'bloquant | avertissement',
+  statut           STRING       NOT NULL COMMENT 'OK | KO'
+) COMMENT 'Résultats des contrôles qualité, historisés - alimentée par sql/quality/controles_qualite.sql';
+
+-- COMMAND ----------
+
 -- 1. Volumétrie par couche et par entité
 SELECT 'patient'         AS entite, 'bronze' AS couche, count(*) AS nb FROM chu.bronze.patient
 UNION ALL SELECT 'patient',         'silver', count(*) FROM chu.silver.patient
