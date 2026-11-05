@@ -352,8 +352,101 @@ FROM calcul;
 
 -- COMMAND ----------
 
-SELECT entite, controle, nb_examinees, nb_anomalies, taux_conformite, statut
+-- 11. Intégrité référentielle : chaque clé étrangère d'un fait existe dans sa dimension.
+--     Databricks n'applique pas les FOREIGN KEY. Une clé orpheline disparaît en silence des vues
+--     d'indicateurs (jointures internes). Le -1 n'est pas orphelin : il existe dans chaque dimension.
+--     Méthode : jointure gauche sur la dimension ; aucune correspondance = clé orpheline.
+INSERT INTO chu.quality.resultats_controles
+  (id_execution, date_controle, couche, entite, controle, dimension, description,
+   nb_examinees, nb_anomalies, taux_conformite, seuil_pct, gravite, statut)
+WITH mesures AS (
+  SELECT 'fait_hospitalisation' AS entite, 'patient_sk' AS cle, 'dim_patient' AS dimension_cible,
+         count(*) AS nb_examinees, count_if(d.patient_sk IS NULL) AS nb_anomalies
+  FROM chu.gold.fait_hospitalisation f
+  LEFT JOIN chu.gold.dim_patient d ON f.patient_sk = d.patient_sk
+  UNION ALL
+  SELECT 'fait_hospitalisation', 'diagnostic_sk', 'dim_diagnostic', count(*), count_if(d.diagnostic_sk IS NULL)
+  FROM chu.gold.fait_hospitalisation f
+  LEFT JOIN chu.gold.dim_diagnostic d ON f.diagnostic_sk = d.diagnostic_sk
+  UNION ALL
+  SELECT 'fait_hospitalisation', 'etablissement_sk', 'dim_etablissement', count(*), count_if(d.etablissement_sk IS NULL)
+  FROM chu.gold.fait_hospitalisation f
+  LEFT JOIN chu.gold.dim_etablissement d ON f.etablissement_sk = d.etablissement_sk
+  UNION ALL
+  SELECT 'fait_hospitalisation', 'date_entree_sk', 'dim_temps', count(*), count_if(d.date_sk IS NULL)
+  FROM chu.gold.fait_hospitalisation f
+  LEFT JOIN chu.gold.dim_temps d ON f.date_entree_sk = d.date_sk
+  UNION ALL
+  SELECT 'fait_hospitalisation', 'date_sortie_sk', 'dim_temps', count(*), count_if(d.date_sk IS NULL)
+  FROM chu.gold.fait_hospitalisation f
+  LEFT JOIN chu.gold.dim_temps d ON f.date_sortie_sk = d.date_sk
+  UNION ALL
+  SELECT 'fait_consultation', 'patient_sk', 'dim_patient', count(*), count_if(d.patient_sk IS NULL)
+  FROM chu.gold.fait_consultation f
+  LEFT JOIN chu.gold.dim_patient d ON f.patient_sk = d.patient_sk
+  UNION ALL
+  SELECT 'fait_consultation', 'professionnel_sk', 'dim_professionnel', count(*), count_if(d.professionnel_sk IS NULL)
+  FROM chu.gold.fait_consultation f
+  LEFT JOIN chu.gold.dim_professionnel d ON f.professionnel_sk = d.professionnel_sk
+  UNION ALL
+  SELECT 'fait_consultation', 'diagnostic_sk', 'dim_diagnostic', count(*), count_if(d.diagnostic_sk IS NULL)
+  FROM chu.gold.fait_consultation f
+  LEFT JOIN chu.gold.dim_diagnostic d ON f.diagnostic_sk = d.diagnostic_sk
+  UNION ALL
+  SELECT 'fait_consultation', 'date_sk', 'dim_temps', count(*), count_if(d.date_sk IS NULL)
+  FROM chu.gold.fait_consultation f
+  LEFT JOIN chu.gold.dim_temps d ON f.date_sk = d.date_sk
+  UNION ALL
+  SELECT 'fait_deces', 'date_sk', 'dim_temps', count(*), count_if(d.date_sk IS NULL)
+  FROM chu.gold.fait_deces f
+  LEFT JOIN chu.gold.dim_temps d ON f.date_sk = d.date_sk
+  UNION ALL
+  SELECT 'fait_deces', 'region_sk', 'dim_region', count(*), count_if(d.region_sk IS NULL)
+  FROM chu.gold.fait_deces f
+  LEFT JOIN chu.gold.dim_region d ON f.region_sk = d.region_sk
+  UNION ALL
+  SELECT 'fait_satisfaction', 'etablissement_sk', 'dim_etablissement', count(*), count_if(d.etablissement_sk IS NULL)
+  FROM chu.gold.fait_satisfaction f
+  LEFT JOIN chu.gold.dim_etablissement d ON f.etablissement_sk = d.etablissement_sk
+  UNION ALL
+  SELECT 'fait_satisfaction', 'region_sk', 'dim_region', count(*), count_if(d.region_sk IS NULL)
+  FROM chu.gold.fait_satisfaction f
+  LEFT JOIN chu.gold.dim_region d ON f.region_sk = d.region_sk
+  UNION ALL
+  SELECT 'fait_satisfaction', 'enquete_sk', 'dim_enquete', count(*), count_if(d.enquete_sk IS NULL)
+  FROM chu.gold.fait_satisfaction f
+  LEFT JOIN chu.gold.dim_enquete d ON f.enquete_sk = d.enquete_sk
+  UNION ALL
+  SELECT 'fait_satisfaction', 'date_sk', 'dim_temps', count(*), count_if(d.date_sk IS NULL)
+  FROM chu.gold.fait_satisfaction f
+  LEFT JOIN chu.gold.dim_temps d ON f.date_sk = d.date_sk
+  UNION ALL
+  SELECT 'pont_professionnel_etablissement', 'professionnel_sk', 'dim_professionnel', count(*), count_if(d.professionnel_sk IS NULL)
+  FROM chu.gold.pont_professionnel_etablissement f
+  LEFT JOIN chu.gold.dim_professionnel d ON f.professionnel_sk = d.professionnel_sk
+  UNION ALL
+  SELECT 'pont_professionnel_etablissement', 'etablissement_sk', 'dim_etablissement', count(*), count_if(d.etablissement_sk IS NULL)
+  FROM chu.gold.pont_professionnel_etablissement f
+  LEFT JOIN chu.gold.dim_etablissement d ON f.etablissement_sk = d.etablissement_sk
+),
+calcul AS (
+  SELECT *, 100 * try_divide(nb_examinees - nb_anomalies, nb_examinees) AS taux_exact
+  FROM mesures
+)
+SELECT id_execution, current_timestamp(), 'gold', entite, concat('fk_', cle), 'integrite',
+       concat(cle, ' existe dans ', dimension_cible),
+       nb_examinees, nb_anomalies, CAST(taux_exact AS DECIMAL(7,4)), CAST(100 AS DECIMAL(7,4)), 'bloquant',
+       CASE WHEN taux_exact >= 100 THEN 'OK' ELSE 'KO' END
+FROM calcul;
+
+-- COMMAND ----------
+
+-- 12. Bilan de l'exécution : tous les contrôles de ce passage, les KO bloquants en premier.
+--     session.id_execution désigne la variable (sans préfixe, c'est la colonne qui serait lue).
+SELECT statut, gravite, dimension, entite, controle,
+       nb_examinees, nb_anomalies, taux_conformite, seuil_pct, description
 FROM chu.quality.resultats_controles
-WHERE id_execution = (SELECT max(id_execution) FROM chu.quality.resultats_controles)
-  AND dimension = 'unicite'
-ORDER BY entite;
+WHERE id_execution = session.id_execution
+ORDER BY CASE statut  WHEN 'KO'       THEN 0 ELSE 1 END,
+         CASE gravite WHEN 'bloquant' THEN 0 ELSE 1 END,
+         dimension, entite, controle;
