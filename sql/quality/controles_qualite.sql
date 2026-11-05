@@ -4,8 +4,6 @@
 
 -- COMMAND ----------
 
--- COMMAND ----------
-
 -- 0. Table des résultats : une ligne par contrôle et par exécution, jamais effacée (historique).
 --    Dimensions qualité : completude | unicite | validite | coherence | integrite
 --    Gravité : bloquant (un KO arrête la chaîne) | avertissement (un KO est seulement signalé)
@@ -27,8 +25,6 @@ CREATE TABLE IF NOT EXISTS chu.quality.resultats_controles (
 
 -- COMMAND ----------
 
--- COMMAND ----------
-
 -- Identifiant de l'exécution : calculé une seule fois, partagé par tous les INSERT du script.
 DECLARE OR REPLACE VARIABLE id_execution STRING
   DEFAULT date_format(current_timestamp(), 'yyyyMMdd_HHmmss');
@@ -47,10 +43,6 @@ UNION ALL SELECT 'hospitalisation', 'silver', count(*) FROM chu.silver.hospitali
 UNION ALL SELECT 'hospitalisation', 'gold',   count(*) FROM chu.gold.fait_hospitalisation
 UNION ALL SELECT 'satisfaction',    'silver', count(*) FROM chu.silver.satisfaction_esatis
 ORDER BY entite, couche;
-
--- COMMAND ----------
-
-
 
 -- COMMAND ----------
 
@@ -203,36 +195,31 @@ FROM calcul;
 
 -- COMMAND ----------
 
-SELECT id_execution, controle, dimension, nb_examinees, nb_anomalies, taux_conformite, statut
-FROM chu.quality.resultats_controles
-ORDER BY date_controle DESC, controle;
-
--- COMMAND ----------
-
 -- 7. Complétude des faits : part des lignes rattachées à un vrai membre de dimension (et non au -1 « Inconnu »).
 --    Seules les clés obtenues par jointure peuvent valoir -1. Les clés de date sont calculées :
 --    elles sont contrôlées avec l'intégrité référentielle.
---    Seuils à 95 % provisoires : à recaler sur les taux observés.
+--    Seuils calés sur les taux observés : 100 % là où aucun -1 n'existe (un seul -1 = changement à
+--    expliquer) ; 99,9 % pour les régions des décès (environ 11 000 départements non rattachables sur 24,9 M).
 INSERT INTO chu.quality.resultats_controles
   (id_execution, date_controle, couche, entite, controle, dimension, description,
    nb_examinees, nb_anomalies, taux_conformite, seuil_pct, gravite, statut)
 WITH mesures AS (
   SELECT 'fait_hospitalisation' AS entite, 'patient_sk' AS cle, count(*) AS nb_examinees,
-         count_if(patient_sk = -1) AS nb_anomalies, 95 AS seuil_pct, 'avertissement' AS gravite
+         count_if(patient_sk = -1) AS nb_anomalies, 100 AS seuil_pct, 'avertissement' AS gravite
   FROM chu.gold.fait_hospitalisation
-  UNION ALL SELECT 'fait_hospitalisation', 'diagnostic_sk', count(*), count_if(diagnostic_sk = -1), 95, 'avertissement'
+  UNION ALL SELECT 'fait_hospitalisation', 'diagnostic_sk', count(*), count_if(diagnostic_sk = -1), 100, 'avertissement'
   FROM chu.gold.fait_hospitalisation
-  UNION ALL SELECT 'fait_hospitalisation', 'etablissement_sk', count(*), count_if(etablissement_sk = -1), 95, 'avertissement'
+  UNION ALL SELECT 'fait_hospitalisation', 'etablissement_sk', count(*), count_if(etablissement_sk = -1), 100, 'avertissement'
   FROM chu.gold.fait_hospitalisation
-  UNION ALL SELECT 'fait_consultation', 'patient_sk', count(*), count_if(patient_sk = -1), 95, 'avertissement'
+  UNION ALL SELECT 'fait_consultation', 'patient_sk', count(*), count_if(patient_sk = -1), 100, 'avertissement'
   FROM chu.gold.fait_consultation
-  UNION ALL SELECT 'fait_consultation', 'diagnostic_sk', count(*), count_if(diagnostic_sk = -1), 95, 'avertissement'
+  UNION ALL SELECT 'fait_consultation', 'diagnostic_sk', count(*), count_if(diagnostic_sk = -1), 100, 'avertissement'
   FROM chu.gold.fait_consultation
   UNION ALL SELECT 'fait_consultation', 'professionnel_sk', count(*), count_if(professionnel_sk = -1), 100, 'bloquant'
   FROM chu.gold.fait_consultation
-  UNION ALL SELECT 'fait_deces', 'region_sk', count(*), count_if(region_sk = -1), 95, 'avertissement'
+  UNION ALL SELECT 'fait_deces', 'region_sk', count(*), count_if(region_sk = -1), 99.9, 'avertissement'
   FROM chu.gold.fait_deces
-  UNION ALL SELECT 'fait_satisfaction', 'region_sk', count(*), count_if(region_sk = -1), 95, 'avertissement'
+  UNION ALL SELECT 'fait_satisfaction', 'region_sk', count(*), count_if(region_sk = -1), 100, 'avertissement'
   FROM chu.gold.fait_satisfaction
   UNION ALL SELECT 'fait_satisfaction', 'enquete_sk', count(*), count_if(enquete_sk = -1), 100, 'bloquant'
   FROM chu.gold.fait_satisfaction
@@ -246,14 +233,6 @@ SELECT id_execution, current_timestamp(), 'gold', entite, concat('completude_', 
        nb_examinees, nb_anomalies, taux, CAST(seuil_pct AS DECIMAL(7,4)), gravite,
        CASE WHEN taux >= seuil_pct THEN 'OK' ELSE 'KO' END
 FROM calcul;
-
--- COMMAND ----------
-
-SELECT entite, controle, nb_examinees, nb_anomalies, taux_conformite, seuil_pct, gravite, statut
-FROM chu.quality.resultats_controles
-WHERE id_execution = (SELECT max(id_execution) FROM chu.quality.resultats_controles)
-  AND dimension = 'completude'
-ORDER BY entite, controle;
 
 -- COMMAND ----------
 
@@ -317,3 +296,64 @@ SELECT controle, conformes, total,
        round(100 * conformes / total, 2) AS taux_pct
 FROM controles
 ORDER BY controle;
+
+-- COMMAND ----------
+
+-- 10. Unicité des clés : Databricks applique NOT NULL, mais ni PRIMARY KEY ni FOREIGN KEY.
+--     Faits et pont : clé primaire. Dimensions : clé naturelle (en double, elle multiplierait
+--     les faits à la jointure Gold ; le membre -1 est inclus). fait_deces n'a pas de clé.
+--     nb_anomalies = lignes en trop (3 lignes pour une même clé = 2 anomalies).
+INSERT INTO chu.quality.resultats_controles
+  (id_execution, date_controle, couche, entite, controle, dimension, description,
+   nb_examinees, nb_anomalies, taux_conformite, seuil_pct, gravite, statut)
+WITH mesures AS (
+  SELECT 'fait_hospitalisation' AS entite, 'hospitalisation_id' AS cle,
+         count(*) AS nb_examinees, count(*) - count(DISTINCT hospitalisation_id) AS nb_anomalies
+  FROM chu.gold.fait_hospitalisation
+  UNION ALL SELECT 'fait_consultation', 'consultation_id',
+         count(*), count(*) - count(DISTINCT consultation_id)
+  FROM chu.gold.fait_consultation
+  UNION ALL SELECT 'fait_satisfaction', 'finess_geo, enquete_sk, date_sk',
+         count(*), count(*) - count(DISTINCT finess_geo, enquete_sk, date_sk)
+  FROM chu.gold.fait_satisfaction
+  UNION ALL SELECT 'pont_professionnel_etablissement', 'professionnel_sk, etablissement_sk',
+         count(*), count(*) - count(DISTINCT professionnel_sk, etablissement_sk)
+  FROM chu.gold.pont_professionnel_etablissement
+  UNION ALL SELECT 'dim_patient', 'patient_id',
+         count(*), count(*) - count(DISTINCT patient_id)
+  FROM chu.gold.dim_patient
+  UNION ALL SELECT 'dim_diagnostic', 'code_diag',
+         count(*), count(*) - count(DISTINCT code_diag)
+  FROM chu.gold.dim_diagnostic
+  UNION ALL SELECT 'dim_etablissement', 'identifiant_organisation',
+         count(*), count(*) - count(DISTINCT identifiant_organisation)
+  FROM chu.gold.dim_etablissement
+  UNION ALL SELECT 'dim_professionnel', 'type_identifiant, identifiant',
+         count(*), count(*) - count(DISTINCT type_identifiant, identifiant)
+  FROM chu.gold.dim_professionnel
+  UNION ALL SELECT 'dim_region', 'code_region',
+         count(*), count(*) - count(DISTINCT code_region)
+  FROM chu.gold.dim_region
+  UNION ALL SELECT 'dim_enquete', 'code_enquete',
+         count(*), count(*) - count(DISTINCT code_enquete)
+  FROM chu.gold.dim_enquete
+),
+calcul AS (
+  SELECT *, 100 * try_divide(nb_examinees - nb_anomalies, nb_examinees) AS taux_exact
+  FROM mesures
+)
+SELECT id_execution, current_timestamp(), 'gold', entite,
+       CASE WHEN entite LIKE 'dim%' THEN 'cle_naturelle_unique' ELSE 'pk_unique' END,
+       'unicite',
+       concat('Aucune ligne en double sur (', cle, ')'),
+       nb_examinees, nb_anomalies, CAST(taux_exact AS DECIMAL(7,4)), CAST(100 AS DECIMAL(7,4)), 'bloquant',
+       CASE WHEN taux_exact >= 100 THEN 'OK' ELSE 'KO' END
+FROM calcul;
+
+-- COMMAND ----------
+
+SELECT entite, controle, nb_examinees, nb_anomalies, taux_conformite, statut
+FROM chu.quality.resultats_controles
+WHERE id_execution = (SELECT max(id_execution) FROM chu.quality.resultats_controles)
+  AND dimension = 'unicite'
+ORDER BY entite;
