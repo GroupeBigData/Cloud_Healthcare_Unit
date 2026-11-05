@@ -203,42 +203,57 @@ FROM calcul;
 
 -- COMMAND ----------
 
--- 7. Complétude des faits : part des lignes rattachées à un vrai membre (et non au -1 « Inconnu »)
---    Avec le contrat Gold, une clé introuvable devient -1 : on compte donc les -1, clé par clé.
-WITH comptes AS (
-  SELECT 'fait_hospitalisation' AS fait, 'patient_sk' AS cle, count(*) AS lignes,
-         sum(CASE WHEN patient_sk = -1 THEN 1 ELSE 0 END) AS inconnus FROM chu.gold.fait_hospitalisation
-  UNION ALL SELECT 'fait_hospitalisation', 'diagnostic_sk', count(*),
-         sum(CASE WHEN diagnostic_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_hospitalisation
-  UNION ALL SELECT 'fait_hospitalisation', 'etablissement_sk', count(*),
-         sum(CASE WHEN etablissement_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_hospitalisation
-  UNION ALL SELECT 'fait_hospitalisation', 'date_entree_sk', count(*),
-         sum(CASE WHEN date_entree_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_hospitalisation
-  UNION ALL SELECT 'fait_hospitalisation', 'date_sortie_sk', count(*),
-         sum(CASE WHEN date_sortie_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_hospitalisation
-  UNION ALL SELECT 'fait_consultation', 'patient_sk', count(*),
-         sum(CASE WHEN patient_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_consultation
-  UNION ALL SELECT 'fait_consultation', 'diagnostic_sk', count(*),
-         sum(CASE WHEN diagnostic_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_consultation
-  UNION ALL SELECT 'fait_consultation', 'professionnel_sk', count(*),
-         sum(CASE WHEN professionnel_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_consultation
-  UNION ALL SELECT 'fait_consultation', 'date_sk', count(*),
-         sum(CASE WHEN date_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_consultation
-  UNION ALL SELECT 'fait_deces', 'date_sk', count(*),
-         sum(CASE WHEN date_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_deces
-  UNION ALL SELECT 'fait_deces', 'region_sk', count(*),
-         sum(CASE WHEN region_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_deces
-  UNION ALL SELECT 'fait_satisfaction', 'enquete_sk', count(*),
-         sum(CASE WHEN enquete_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_satisfaction
-  UNION ALL SELECT 'fait_satisfaction', 'date_sk', count(*),
-         sum(CASE WHEN date_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_satisfaction
-  UNION ALL SELECT 'fait_satisfaction', 'region_sk', count(*),
-         sum(CASE WHEN region_sk = -1 THEN 1 ELSE 0 END) FROM chu.gold.fait_satisfaction
+SELECT id_execution, controle, dimension, nb_examinees, nb_anomalies, taux_conformite, statut
+FROM chu.quality.resultats_controles
+ORDER BY date_controle DESC, controle;
+
+-- COMMAND ----------
+
+-- 7. Complétude des faits : part des lignes rattachées à un vrai membre de dimension (et non au -1 « Inconnu »).
+--    Seules les clés obtenues par jointure peuvent valoir -1. Les clés de date sont calculées :
+--    elles sont contrôlées avec l'intégrité référentielle.
+--    Seuils à 95 % provisoires : à recaler sur les taux observés.
+INSERT INTO chu.quality.resultats_controles
+  (id_execution, date_controle, couche, entite, controle, dimension, description,
+   nb_examinees, nb_anomalies, taux_conformite, seuil_pct, gravite, statut)
+WITH mesures AS (
+  SELECT 'fait_hospitalisation' AS entite, 'patient_sk' AS cle, count(*) AS nb_examinees,
+         count_if(patient_sk = -1) AS nb_anomalies, 95 AS seuil_pct, 'avertissement' AS gravite
+  FROM chu.gold.fait_hospitalisation
+  UNION ALL SELECT 'fait_hospitalisation', 'diagnostic_sk', count(*), count_if(diagnostic_sk = -1), 95, 'avertissement'
+  FROM chu.gold.fait_hospitalisation
+  UNION ALL SELECT 'fait_hospitalisation', 'etablissement_sk', count(*), count_if(etablissement_sk = -1), 95, 'avertissement'
+  FROM chu.gold.fait_hospitalisation
+  UNION ALL SELECT 'fait_consultation', 'patient_sk', count(*), count_if(patient_sk = -1), 95, 'avertissement'
+  FROM chu.gold.fait_consultation
+  UNION ALL SELECT 'fait_consultation', 'diagnostic_sk', count(*), count_if(diagnostic_sk = -1), 95, 'avertissement'
+  FROM chu.gold.fait_consultation
+  UNION ALL SELECT 'fait_consultation', 'professionnel_sk', count(*), count_if(professionnel_sk = -1), 100, 'bloquant'
+  FROM chu.gold.fait_consultation
+  UNION ALL SELECT 'fait_deces', 'region_sk', count(*), count_if(region_sk = -1), 95, 'avertissement'
+  FROM chu.gold.fait_deces
+  UNION ALL SELECT 'fait_satisfaction', 'region_sk', count(*), count_if(region_sk = -1), 95, 'avertissement'
+  FROM chu.gold.fait_satisfaction
+  UNION ALL SELECT 'fait_satisfaction', 'enquete_sk', count(*), count_if(enquete_sk = -1), 100, 'bloquant'
+  FROM chu.gold.fait_satisfaction
+),
+calcul AS (
+  SELECT *, CAST(100 * try_divide(nb_examinees - nb_anomalies, nb_examinees) AS DECIMAL(7,4)) AS taux
+  FROM mesures
 )
-SELECT fait, cle, lignes, inconnus,
-       round(100 * (lignes - inconnus) / lignes, 2) AS completude_pct
-FROM comptes
-ORDER BY fait, cle;
+SELECT id_execution, current_timestamp(), 'gold', entite, concat('completude_', cle), 'completude',
+       concat(cle, ' pointe vers un vrai membre de dimension, et non vers -1 « Inconnu »'),
+       nb_examinees, nb_anomalies, taux, CAST(seuil_pct AS DECIMAL(7,4)), gravite,
+       CASE WHEN taux >= seuil_pct THEN 'OK' ELSE 'KO' END
+FROM calcul;
+
+-- COMMAND ----------
+
+SELECT entite, controle, nb_examinees, nb_anomalies, taux_conformite, seuil_pct, gravite, statut
+FROM chu.quality.resultats_controles
+WHERE id_execution = (SELECT max(id_execution) FROM chu.quality.resultats_controles)
+  AND dimension = 'completude'
+ORDER BY entite, controle;
 
 -- COMMAND ----------
 
