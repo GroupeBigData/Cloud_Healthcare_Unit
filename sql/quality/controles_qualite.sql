@@ -167,3 +167,57 @@ SELECT millesime, enquete, count(*) AS etablissements,
        sum(CASE WHEN est_classe THEN 1 ELSE 0 END)          AS classes_a_d
 FROM chu.silver.satisfaction_esatis
 GROUP BY millesime, enquete ORDER BY millesime, enquete;
+
+-- COMMAND ----------
+
+-- 9. Cohérence des FINESS : format, département, unicité, concordance e-Satis, pont pondéré
+--    Une ligne par contrôle : conformes / total / taux (en %).
+WITH etab AS (
+  SELECT * FROM chu.gold.dim_etablissement
+  WHERE etablissement_sk <> -1 AND type_structure = 'F'
+),
+controles AS (
+  SELECT '1. Format du FINESS géographique valide' AS controle,
+         sum(CASE WHEN finess_geo RLIKE '^([0-9]{2}|2[AB]|9[A-F])[0-9]{7}$' THEN 1 ELSE 0 END) AS conformes,
+         count(*) AS total
+  FROM etab
+  UNION ALL
+  SELECT '2. Préfixe FINESS = département de la commune',
+         sum(CASE WHEN left(finess_geo, 2) =
+                       CASE code_departement
+                         WHEN '971' THEN '9A' WHEN '977' THEN '9A' WHEN '978' THEN '9A'
+                         WHEN '972' THEN '9B' WHEN '973' THEN '9C' WHEN '974' THEN '9D'
+                         WHEN '975' THEN '9E' WHEN '976' THEN '9F'
+                         ELSE code_departement
+                       END
+                  THEN 1 ELSE 0 END),
+         count(*)
+  FROM etab
+  WHERE code_departement IS NOT NULL
+  UNION ALL
+  SELECT '3. FINESS géographique porté par une seule fiche',
+         sum(CASE WHEN nb_fiches = 1 THEN 1 ELSE 0 END), count(*)
+  FROM (SELECT finess_geo, count(*) AS nb_fiches FROM etab GROUP BY finess_geo)
+  UNION ALL
+  SELECT concat('4. e-Satis rattaché au référentiel - ', q.code_enquete, ' ', t.annee),
+         sum(CASE WHEN f.etablissement_sk <> -1 THEN 1 ELSE 0 END), count(*)
+  FROM chu.gold.fait_satisfaction f
+  JOIN chu.gold.dim_enquete q ON f.enquete_sk = q.enquete_sk
+  JOIN chu.gold.dim_temps t   ON f.date_sk = t.date_sk
+  GROUP BY q.code_enquete, t.annee
+  UNION ALL
+  SELECT '5. Professionnels dont les poids du pont font 1',
+         sum(CASE WHEN abs(somme_poids - 1) < 1e-9 THEN 1 ELSE 0 END), count(*)
+  FROM (SELECT professionnel_sk, sum(poids) AS somme_poids
+        FROM chu.gold.pont_professionnel_etablissement GROUP BY professionnel_sk)
+  UNION ALL
+  SELECT '6. Professionnels rattachés à au moins une structure connue',
+         sum(a_structure), count(*)
+  FROM (SELECT professionnel_sk,
+               max(CASE WHEN etablissement_sk <> -1 THEN 1 ELSE 0 END) AS a_structure
+        FROM chu.gold.pont_professionnel_etablissement GROUP BY professionnel_sk)
+)
+SELECT controle, conformes, total,
+       round(100 * conformes / total, 2) AS taux_pct
+FROM controles
+ORDER BY controle;
