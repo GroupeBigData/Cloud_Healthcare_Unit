@@ -27,6 +27,14 @@ CREATE TABLE IF NOT EXISTS chu.quality.resultats_controles (
 
 -- COMMAND ----------
 
+-- COMMAND ----------
+
+-- Identifiant de l'exécution : calculé une seule fois, partagé par tous les INSERT du script.
+DECLARE OR REPLACE VARIABLE id_execution STRING
+  DEFAULT date_format(current_timestamp(), 'yyyyMMdd_HHmmss');
+
+-- COMMAND ----------
+
 -- 1. Volumétrie par couche et par entité
 SELECT 'patient'         AS entite, 'bronze' AS couche, count(*) AS nb FROM chu.bronze.patient
 UNION ALL SELECT 'patient',         'silver', count(*) FROM chu.silver.patient
@@ -39,6 +47,10 @@ UNION ALL SELECT 'hospitalisation', 'silver', count(*) FROM chu.silver.hospitali
 UNION ALL SELECT 'hospitalisation', 'gold',   count(*) FROM chu.gold.fait_hospitalisation
 UNION ALL SELECT 'satisfaction',    'silver', count(*) FROM chu.silver.satisfaction_esatis
 ORDER BY entite, couche;
+
+-- COMMAND ----------
+
+
 
 -- COMMAND ----------
 
@@ -132,16 +144,62 @@ WHERE diagnostic_sk <> -1;
 
 -- COMMAND ----------
 
--- 6. dim_temps : couverture du calendrier, sans trou, avec un seul membre -1
---    Attendu : 53327 / 53327 / 1880-01-01 / 2025-12-31 / 0 / 1
-SELECT count(*)                                                          AS nb_lignes,
-       count(DISTINCT date_sk)                                           AS cles_uniques,
-       min(date_complete)                                                AS date_min,
-       max(date_complete)                                                AS date_max,
-       datediff(max(date_complete), min(date_complete)) + 1
-         - count(date_complete)                                          AS jours_manquants,
-       sum(CASE WHEN date_sk = -1 THEN 1 ELSE 0 END)                     AS membre_inconnu
-FROM chu.gold.dim_temps;
+-- 6. dim_temps : clé unique, calendrier continu, bornes attendues, un seul membre -1, clé = date
+INSERT INTO chu.quality.resultats_controles
+  (id_execution, date_controle, couche, entite, controle, dimension, description,
+   nb_examinees, nb_anomalies, taux_conformite, seuil_pct, gravite, statut)
+WITH t AS (
+  SELECT count(*)                                              AS nb_lignes,
+         count(DISTINCT date_sk)                               AS cles_distinctes,
+         min(date_complete)                                    AS date_min,
+         max(date_complete)                                    AS date_max,
+         count(DISTINCT date_complete)                         AS jours_presents,
+         sum(CASE WHEN date_sk = -1 THEN 1 ELSE 0 END)         AS membres_inconnus,
+         sum(CASE WHEN date_sk <> -1
+                   AND date_sk <> CAST(date_format(date_complete, 'yyyyMMdd') AS INT)
+                  THEN 1 ELSE 0 END)                           AS cles_incoherentes
+  FROM chu.gold.dim_temps
+),
+mesures AS (
+  SELECT 'pk_unique' AS controle, 'unicite' AS dimension,
+         'Chaque date_sk n''apparaît qu''une fois' AS description,
+         nb_lignes AS nb_examinees, nb_lignes - cles_distinctes AS nb_anomalies,
+         100 AS seuil_pct, 'bloquant' AS gravite
+  FROM t
+  UNION ALL
+  SELECT 'calendrier_continu', 'completude',
+         'Aucun jour manquant entre la première et la dernière date',
+         datediff(date_max, date_min) + 1, datediff(date_max, date_min) + 1 - jours_presents,
+         100, 'bloquant'
+  FROM t
+  UNION ALL
+  SELECT 'bornes_calendrier', 'validite',
+         'Le calendrier va du 1880-01-01 au 2025-12-31',
+         2, CASE WHEN date_min = DATE'1880-01-01' THEN 0 ELSE 1 END
+          + CASE WHEN date_max = DATE'2025-12-31' THEN 0 ELSE 1 END,
+         100, 'bloquant'
+  FROM t
+  UNION ALL
+  SELECT 'membre_inconnu_unique', 'unicite',
+         'Le membre -1 « date inconnue » existe une et une seule fois',
+         1, CASE WHEN membres_inconnus = 1 THEN 0 ELSE 1 END,
+         100, 'bloquant'
+  FROM t
+  UNION ALL
+  SELECT 'cle_egale_date', 'coherence',
+         'date_sk correspond à date_complete au format AAAAMMJJ',
+         nb_lignes - membres_inconnus, cles_incoherentes,
+         100, 'bloquant'
+  FROM t
+),
+calcul AS (
+  SELECT *, CAST(100 * try_divide(nb_examinees - nb_anomalies, nb_examinees) AS DECIMAL(7,4)) AS taux
+  FROM mesures
+)
+SELECT id_execution, current_timestamp(), 'gold', 'dim_temps', controle, dimension, description,
+       nb_examinees, nb_anomalies, taux, CAST(seuil_pct AS DECIMAL(7,4)), gravite,
+       CASE WHEN taux >= seuil_pct THEN 'OK' ELSE 'KO' END
+FROM calcul;
 
 -- COMMAND ----------
 
