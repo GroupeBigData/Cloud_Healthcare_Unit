@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # BENCHMARK GLOBAL CHU — 6 requêtes
 
 requetes = {
